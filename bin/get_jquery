@@ -1,0 +1,36 @@
+#!/bin/bash
+
+VERSION="3.5.1"
+UI_VERSION="1.13.3"
+
+usage() { echo -e "\nUsage: $0 [-v <jquery_version>] [-u <jquery_ui_version>]\n\nDefault versions: jQuery v$VERSION, jQuery UI v$UI_VERSION.\n"; exit 1; }
+while getopts ":u:v:" o; do
+    case "${o}" in
+        v)
+            VERSION=${OPTARG}
+            ;;
+        u)
+            UI_VERSION=${OPTARG}
+            ;;
+        *)
+            usage
+            ;;
+    esac
+done
+shift $((OPTIND-1))
+
+d=`dirname $0`
+DIR=`cd $d/../ && pwd`
+JQUERY_URL=https://code.jquery.com/
+echo "Getting jQuery v$VERSION and jQuery UI v$UI_VERSION"
+mkdir -p $DIR/static/javascript/auto/
+mkdir -p $DIR/static/style/auto/
+mkdir -p $DIR/static/style/images/
+wget -q -O $DIR/static/javascript/auto/00_jquery.js $JQUERY_URL/jquery-$VERSION.min.js
+wget -q -O $DIR/static/javascript/auto/01_jquery-ui.js $JQUERY_URL/ui/$UI_VERSION/jquery-ui.min.js
+wget -q -O $DIR/static/style/auto/01_jquery-ui.css $JQUERY_URL/ui/$UI_VERSION/themes/base/jquery-ui.css
+images=`grep ': url(' $DIR/static/style/auto/01_jquery-ui.css | grep -v 'url("data:' | grep -o 'url([^;]\+' | awk -F '"' '{print $2}'`
+for image in `echo "$images"`; do
+	wget -q -O $DIR/static/style/$image $JQUERY_URL/ui/$UI_VERSION/themes/base/$image 
+done
+echo "Finished!"
