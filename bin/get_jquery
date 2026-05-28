@@ -1,7 +1,7 @@
 #!/bin/bash
 
-VERSION="3.5.1"
-UI_VERSION="1.13.3"
+VERSION="4.0.0"
+UI_VERSION="1.14.2"
 
 usage() { echo -e "\nUsage: $0 [-v <jquery_version>] [-u <jquery_ui_version>]\n\nDefault versions: jQuery v$VERSION, jQuery UI v$UI_VERSION.\n"; exit 1; }
 while getopts ":u:v:" o; do
