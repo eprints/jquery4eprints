@@ -1,36 +1,160 @@
-#!/bin/bash
+#!/usr/bin/perl -w
 
-VERSION="4.0.0"
-UI_VERSION="1.14.2"
+use strict;
+use FindBin;
+use lib "$FindBin::Bin/../../../perl_lib";
 
-usage() { echo -e "\nUsage: $0 [-v <jquery_version>] [-u <jquery_ui_version>]\n\nDefault versions: jQuery v$VERSION, jQuery UI v$UI_VERSION.\n"; exit 1; }
-while getopts ":u:v:" o; do
-    case "${o}" in
-        v)
-            VERSION=${OPTARG}
-            ;;
-        u)
-            UI_VERSION=${OPTARG}
-            ;;
-        *)
-            usage
-            ;;
-    esac
-done
-shift $((OPTIND-1))
+=pod
 
-d=`dirname $0`
-DIR=`cd $d/../ && pwd`
-JQUERY_URL=https://code.jquery.com/
-echo "Getting jQuery v$VERSION and jQuery UI v$UI_VERSION"
-mkdir -p $DIR/static/javascript/auto/
-mkdir -p $DIR/static/style/auto/
-mkdir -p $DIR/static/style/images/
-wget --no-use-server-timestamps -q -O $DIR/static/javascript/auto/00_jquery.js $JQUERY_URL/jquery-$VERSION.min.js
-wget --no-use-server-timestamps -q -O $DIR/static/javascript/auto/01_jquery-ui.js $JQUERY_URL/ui/$UI_VERSION/jquery-ui.min.js
-wget --no-use-server-timestamps -q -O $DIR/static/style/auto/01_jquery-ui.css $JQUERY_URL/ui/$UI_VERSION/themes/base/jquery-ui.css
-images=`grep ': url(' $DIR/static/style/auto/01_jquery-ui.css | grep -v 'url("data:' | grep -o 'url([^;]\+' | awk -F '"' '{print $2}'`
-for image in `echo "$images"`; do
-	wget --no-use-server-timestamps -q -O $DIR/static/style/$image $JQUERY_URL/ui/$UI_VERSION/themes/base/$image
-done
-echo "Finished!"
+=for Pod2Wiki
+
+=head1 NAME
+
+B<epadmin> - Tool to download JQuery libraries for use with EPrints
+
+=head1 SYNOPSIS
+
+B<get_jquery> [B<options>]
+
+=head1 OPTIONS
+
+=over 8
+
+=item B<--help>
+
+Print the full help message and exit.
+
+=item B<--quiet>
+
+Prevent any unnecessary messages.
+
+=item B<--verbose>
+
+Explain in detail what is going on. May be repeated for greater effect.
+
+=item B<--force>
+
+Replace JQuery libraries if they already exist.
+
+=item B<--version>
+
+Version of JQuery to download if you don't want to installed the pinned version for jquery4eprints.
+
+=item B<--ui-version>
+
+Version of JQuery UI to download if you don't want to installed the pinned version for jquery4eprints.
+
+=back
+
+=cut
+
+use EPrints;
+use Getopt::Long;
+use Pod::Usage;
+use File::Basename;
+use File::Path qw( make_path );
+
+my $verbose = 0;
+my $quiet = 0;
+my $help = 0;
+my $version = "4.0.0";
+my $ui_version = "1.14.2";
+my $force = 0;
+
+Getopt::Long::Configure("permute");
+
+GetOptions(
+    'help|?' => \$help,
+    'version' => \$version,
+	'ui-version' => \$ui_version,
+    'verbose+' => \$verbose,
+    'quiet' => \$quiet,
+    'force' => \$force,
+) || pod2usage( 2 );
+pod2usage( -exitstatus => 0, -verbose => 2 ) if $help;
+
+# Set STDOUT to auto flush (without needing a \n)
+$|=1;
+
+my $noise = 1;
+$noise = 0 if( $quiet );
+$noise = 1+$verbose if( $verbose );
+
+my $JQUERY_URL = "https://code.jquery.com";
+my $DIR = "$FindBin::Bin/..";
+my @urls = (
+    "$JQUERY_URL/jquery-$version.min.js",
+    "$JQUERY_URL/ui/$ui_version/jquery-ui.min.js",
+    "$JQUERY_URL/ui/$ui_version/themes/base/jquery-ui.css",
+);
+my @file_paths = (
+    "$DIR/static/javascript/auto/00_jquery.js",
+    "$DIR/static/javascript/auto/01_jquery-ui.js",
+    "$DIR/static/style/auto/01_jquery-ui.css",
+);
+
+if ( -f $file_paths[0] && !$force )
+{
+	print STDERR "Cannot download jQuery, files already in place.  Use --force to download anyway.\n";
+	exit 1;
+}
+print "Downloading jQuery v$version and jQuery UI v$ui_version\n" if $noise > 0;
+make_path( "$DIR/static/javascript/auto/" );
+make_path( "$DIR/static/style/auto/" );
+make_path( "$DIR/static/style/images/" );
+
+my $ua = LWP::UserAgent->new();
+$ua->agent( 'eprints/' . EPrints->human_version );
+if( EPrints::Utils::is_set( $ENV{HTTP_proxy} ) )
+{
+    $ua->proxy( 'http', $ENV{HTTP_proxy} )
+}
+
+for ( my $u = 0; $u < scalar @urls; $u++ )
+{
+	print "Downloading " . $urls[$u] . " to " . $file_paths[$u] . "\n" if $noise > 1;
+	my $response = $ua->get( $urls[$u] );
+	if ( $response->is_success )
+	{
+		my $file = $response->decoded_content( charset => 'none' );
+		if ( open SAVE, '>>' . $file_paths[$u] )
+		{
+			print SAVE $file;
+			close SAVE;
+		}
+	}
+}
+
+if ( open(CSS, '<' . $file_paths[2] ) ) 
+{
+	my %image_files = ();
+	while ( <CSS> )
+	{
+		chomp;
+		if ( /images\/.*.png/g ) 
+		{
+     		my $image_file = substr( $_, $-[0], $+[0] - $-[0] );
+			next if $image_files{$image_file};
+			$image_files{$image_file} = 1;
+		}
+	}
+	close CSS;
+	foreach my $image_file ( keys %image_files )
+	{
+		my $image_url = "$JQUERY_URL/ui/$ui_version/themes/base/$image_file";
+		my $image_path = "$DIR/static/style/$image_file";
+		print "Downloading $image_url to $image_path\n" if $noise > 1;
+		my $response = $ua->get( $image_url );
+		if ( $response->is_success )
+		{
+			my $file = $response->decoded_content( charset => 'none' );
+			if ( open SAVE, '>>' . $image_path )
+			{
+				print SAVE $file;
+				close SAVE;
+        	}
+		}
+	}
+}
+
+print "Finished!\n" if $noise > 0;
